@@ -1,0 +1,8 @@
+# depslib dependency file v1.0
+1656418089 source:c:\users\asus\desktop\algorithmic-exercises\server\main.cpp
+	<winsock2.h>
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<windows.h>
+

@@ -1,18 +1,23 @@
 #include <winsock2.h>	// 为了使用Winsock API函数
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <windows.h>
 #define MAX_CLNT 256
 #define BUF_SIZE 100
 #define NAME_SIZE 30
 #define PASSWORD_SIZE 50
+#define msgNumber 10
 // 告诉连接器与WS2_32库连接
 #pragma comment(lib,"WS2_32.lib")
 
 void error_handling(const char* msg);		/*错误处理函数*/
 DWORD WINAPI ThreadProc(LPVOID lpParam);	/*线程执行函数*/
 void send_msg(char* msg, int len);			/*消息发送函数*/
-void loginVerification(char* name,char* password);
+void loginVerification(char* name,char* password); /*登录验证*/
+void readSaveMsg();                                 /*读取缓存消息*/
+void saveNewMsg();                                  /*保存最新数据*/
+void updateMsg(char *msg);                         /*更新缓存数据*/
 
 HANDLE g_hEvent;			/*事件内核对象*/
 int clnt_cnt = 0;			//统计套接字
@@ -21,6 +26,7 @@ HANDLE hThread[MAX_CLNT];	//管理线程
 char userName[NAME_SIZE];
 char password[PASSWORD_SIZE];
 char loginFeedback[2];
+char saveMsg[msgNumber][2048];//保存最新的十条消息
 
 int main()
 {
@@ -68,13 +74,6 @@ int main()
 			printf("Failed accept()");
 			continue;
 		}
-		//接收新连接所发送的消息
-        recv(clnt_sock, userName, sizeof(userName), 0);
-        recv(clnt_sock, password, sizeof(password), 0);
-        printf("%s. %s\n",userName,password);
-        //判断用户是否存在以及密码是否正确
-        loginVerification(userName,password);
-        send(clnt_sock, loginFeedback, sizeof(loginFeedback), 0);
 
 		/*等待内核事件对象状态受信*/
 		WaitForSingleObject(g_hEvent, INFINITE);
@@ -116,9 +115,29 @@ DWORD WINAPI ThreadProc(LPVOID lpParam)
 	int str_len = 0, i;
 	char msg[BUF_SIZE];
 
+	//接收新连接所发送的消息
+    recv(clnt_sock, userName, sizeof(userName), 0);
+    recv(clnt_sock, password, sizeof(password), 0);
+    printf("%s. %s\n",userName,password);
+    //判断用户是否存在以及密码是否正确
+    loginVerification(userName,password);
+    send(clnt_sock, loginFeedback, sizeof(loginFeedback), 0);
+
+    //读取缓存消息
+    readSaveMsg();
+
+    //用户进入聊天室提示
+    char te[2048];
+    strcpy(te,userName);
+    strcat(te,"进入聊天室\n");
+    send_msg(te,strlen(te));
+
 	while ((str_len = recv(clnt_sock, msg, sizeof(msg), 0)) != -1)
 	{
 		send_msg(msg, str_len);
+		updateMsg(msg);
+		strcpy(saveMsg[msgNumber],msg);
+        saveNewMsg();
 		printf("群发送成功\n");
 	}
 	printf("客户端退出:%d\n", GetCurrentThreadId());
@@ -168,3 +187,37 @@ void loginVerification(char* name,char* password){
         }else strcpy(loginFeedback,"0");
     }
 }
+
+void readSaveMsg(){
+    FILE *fp;
+    char info[2050];
+
+    fp=fopen("info.txt","r");
+    while(!feof(fp)){
+        int i=0;
+        fscanf(fp,"%s",info);
+        strcat(info, " \n");
+        int str_len=strlen(info);
+        strcpy(saveMsg[i++],info);
+        send_msg(info, str_len);
+    }
+    fclose(fp);
+}
+
+void saveNewMsg(){
+    FILE *fp;
+
+    fp=fopen("info.txt","r+");
+    for(int i=0;i<msgNumber;i++){
+        printf("%s\n",saveMsg[i]);
+        fprintf(fp,"%s",saveMsg[i]);
+    }
+    fclose(fp);
+}
+void updateMsg(char* msg){
+    for(int i=1;i<msgNumber-1;i++){
+        strcpy(saveMsg[i-1],saveMsg[i]);
+    }
+    strcpy(saveMsg[msgNumber-1],msg);
+}
+

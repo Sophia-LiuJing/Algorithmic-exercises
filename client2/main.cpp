@@ -1,28 +1,37 @@
 #include <winsock2.h>
 #include <stdio.h>
 #include <windows.h>
-
+#include <conio.h>
 // 告诉连接器与WS2_32库连接
 #pragma comment(lib,"WS2_32.lib")
 #define BUF_SIZE 256
 #define NAME_SIZE 30
 #define PASSWORD_SIZE 50
+#define INPUT_ROWS 2
 
 DWORD WINAPI send_msg(LPVOID lpParam);
 DWORD WINAPI recv_msg(LPVOID lpParam);
+HANDLE drawConsole();
 void error_handling(const char* msg);
+void dramPoint(COORD pos, HANDLE hout, int sign, int strLen);
 int login();
-void uiInit();
-void gotoxy(int col,int row);
 
 SOCKET sock;
 HANDLE hMutex; //互斥锁
-static POINT pos={0,0};
 char name[NAME_SIZE];
 char password[PASSWORD_SIZE];
 char msg[BUF_SIZE];
 char line1[111]; // 分割线
 char line2[111]; //一行空白字符
+
+// 控制台界面绘制相关变量
+DWORD num, width, height;
+int output_bottom, rows, length;
+COORD pos;
+CHAR_INFO scroll_fill_char;
+CONSOLE_SCREEN_BUFFER_INFO csbi;
+SMALL_RECT message_region;
+HANDLE hout;
 
 int main()
 {
@@ -47,7 +56,7 @@ int main()
 
 	if (connect(sock, (sockaddr*)&servAddr, sizeof(servAddr)) == -1)
 		error_handling("Failed connect()");
-	printf("connect success\n");
+	//printf("connect success\n");
 
 	//登录
 	int loginFeedback=login();
@@ -55,7 +64,7 @@ int main()
         printf("%d\n",loginFeedback);
         return 0;
 	}
-    uiInit();
+    hout = drawConsole();
 
 	hThread[0] = CreateThread(
 		NULL,		// 默认安全属性
@@ -88,16 +97,25 @@ int main()
 DWORD WINAPI send_msg(LPVOID lpParam)
 {
 	int sock = *((int*)lpParam);
+	int tempSign = 0;
 	char name_msg[NAME_SIZE + BUF_SIZE];
 	while (1)
 	{
 		fgets(msg, BUF_SIZE, stdin);
+		//去除进入的空格
+		if(tempSign == 0) {
+			tempSign = 1;
+			continue;
+		}
 		if (!strcmp(msg, "q\n") || !strcmp(msg, "Q\n"))
 		{
 			closesocket(sock);
 			exit(0);
 		}
-		sprintf(name_msg, "[%s]: %s", name, msg);
+		sprintf(name_msg, "[%s]:%s", name, msg);
+		dramPoint(pos, hout, 1, 0);
+		FillConsoleOutputCharacter(hout, ' ', sizeof(name_msg), pos, &num);
+		dramPoint(pos, hout, 1, 0);
 		int nRecv = send(sock, name_msg, strlen(name_msg), 0);
 	}
 	return NULL;
@@ -114,7 +132,9 @@ DWORD WINAPI recv_msg(LPVOID lpParam)
 		if (str_len == -1)
 			return -1;
 		name_msg[str_len] = 0;
+		dramPoint(pos, hout, 0, 100);
 		fputs(name_msg, stdout);
+		dramPoint(pos, hout, 1, 0);
 	}
 	return NULL;
 }
@@ -128,12 +148,12 @@ void error_handling(const char* msg)
 
 int login(){
     //配置聊天室的登录窗口
-    system("mode con lines=10 cols=40");
-    printf("\n\n     欢迎使用多人聊天室\n\n");
-    printf("       昵称：");
+    //system("mode con lines=10 cols=40");
+    printf("\n\n                    欢迎使用多人聊天室\n\n");
+    printf("                   昵称：");
     scanf("%s",name);
     getchar();
-    printf("       密码：");
+    printf("                   密码：");
     scanf("%s",password);
     getchar();
     //把自己的昵称，发送给服务器
@@ -152,22 +172,48 @@ int login(){
     }else return 1;
 }
 
-void gotoxy(int col,int row){
+HANDLE drawConsole() {
+    system("cls");
+	scroll_fill_char.Char.AsciiChar = ' ';
+    scroll_fill_char.Attributes = FOREGROUND_GREEN;
 
-    HANDLE handle=GetStdHandle(STD_OUTPUT_HANDLE);//获取标准控制台的句柄
-    COORD postem={col,row};
-    //设置指定控制台的光标位置
-    SetConsoleCursorPosition(handle, postem);//配置哪个控制台的光标，把光标移动到哪个位置
+    HANDLE hout = GetStdHandle( STD_OUTPUT_HANDLE );
 
+    GetConsoleScreenBufferInfo(hout, &csbi);
+    width = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+    height = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+
+    output_bottom = height - INPUT_ROWS - 2;
+
+    message_region.Left = message_region.Top = 0;
+    message_region.Right = width - 1;
+    message_region.Bottom = output_bottom;
+
+    //画分隔线
+    pos.X = 0;
+    pos.Y = output_bottom + 1;
+    FillConsoleOutputAttribute(hout, FOREGROUND_BLUE, width, pos, &num);
+    FillConsoleOutputCharacter(hout, '=', width, pos, &num);
+
+    return hout;
 }
 
-void uiInit(){ //聊天界面初始化
-    system("mode con lines=36 cols=110");
-    system("cls"); //清除屏幕
-    for(int i=0;i<110;i++){
-        line1[i]='-';
-    }
-    line1[110]=0;
-    gotoxy(0,33);//移动光标位置
-    printf("%s\n\n",line1);
+void dramPoint(COORD pos, HANDLE hout, int sign, int strLen) {
+	if(sign == 1) {
+		pos.X = 0;
+		pos.Y = height - INPUT_ROWS;
+		SetConsoleCursorPosition(hout, pos);
+	} else {
+		// 消息区域进行滚动
+		rows = (strLen + width - 1) / width;
+		pos.X = 0;
+        pos.Y = -rows;
+        ScrollConsoleScreenBuffer(hout, &message_region, &message_region, pos, &scroll_fill_char);
+
+		// 设置光标位置
+		pos.X = 0;
+        pos.Y = height - INPUT_ROWS - rows - 1;
+        FillConsoleOutputCharacter(hout, ' ', width*rows, pos, &num);
+		SetConsoleCursorPosition(hout, pos);
+	}
 }
