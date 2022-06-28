@@ -1,0 +1,6 @@
+# depslib dependency file v1.0
+1656352064 source:c:\users\asus\desktop\client2\main.cpp
+	<winsock2.h>
+	<stdio.h>
+	<windows.h>
+
